@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agendamento de Tablets</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    body { margin: 0; background: #0A0A0B; color: #F5F5F5; font-family: 'Roboto', Arial, sans-serif; }
+    #carregando { display: flex; align-items: center; justify-content: center; height: 100vh; color: #6B6B73; }
+  </style>
+</head>
+<body>
+<div id="root"><div id="carregando">Carregando...</div></div>
+
+<!-- Mostra na tela qualquer erro de carregamento (para facilitar o suporte) -->
+<script>
+  var jaMostrou = false;
+  function mostrarErro(msg) {
+    if (jaMostrou) return;   // mostra só o primeiro erro (a causa real)
+    jaMostrou = true;
+    var r = document.getElementById("root");
+    r.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box">' +
+      '<div style="background:#131315;border:1px solid rgba(225,6,0,.4);border-radius:16px;padding:24px;max-width:520px;font-family:Arial,sans-serif">' +
+      '<div style="color:#E10600;font-size:12px;letter-spacing:1.2px;text-transform:uppercase">Erro ao abrir</div>' +
+      '<div style="color:#F5F5F5;font-size:20px;margin:8px 0">O sistema não conseguiu carregar.</div>' +
+      '<div style="color:#A1A1AA;font-size:14px;line-height:1.5;word-break:break-word">' + msg + '</div></div></div>';
+  }
+  window.addEventListener("error", function (e) {
+    var t = e.target;
+    if (t && t.tagName === "SCRIPT") mostrarErro("Não foi possível baixar: " + t.src + "<br><br>Verifique a internet ou se a rede da escola bloqueia esse endereço.");
+    else if (e.message) mostrarErro(e.message);
+  }, true);
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<script>
+// =====================================================================
+//  1) COLE AQUI A CONFIGURAÇÃO DO SEU FIREBASE (passo 1 do guia)
+// =====================================================================
+const firebaseConfig = {
+  apiKey: "COLE_AQUI",
+  authDomain: "COLE_AQUI",
+  projectId: "COLE_AQUI",
+  storageBucket: "COLE_AQUI",
+  messagingSenderId: "COLE_AQUI",
+  appId: "COLE_AQUI",
+};
+
+// =====================================================================
+//  2) CONFIGURAÇÕES DA ESCOLA (edite à vontade)
+// =====================================================================
+const MATERIAS = [
+  "Matemática", "Língua Portuguesa", "Redação", "Inglês", "Espanhol",
+  "História", "Geografia", "Ciências", "Biologia", "Física", "Química",
+  "Artes", "Educação Física", "Filosofia", "Sociologia",
+  "Ensino Religioso", "Robótica",
+];
+
+const TOTAL_TABLETS = 30;   // quantidade total de tablets da escola
+const PIN = "1234";         // PIN do painel administrativo — altere!
+
+const HORARIOS = [
+  { id: "m1", label: "1º horário", inicio: "07:00", fim: "07:50" },
+  { id: "m2", label: "2º horário", inicio: "07:50", fim: "08:40" },
+  { id: "m3", label: "3º horário", inicio: "08:40", fim: "09:30" },
+  { id: "int1", label: "Intervalo", inicio: "09:30", fim: "09:50", intervalo: true },
+  { id: "m4", label: "4º horário", inicio: "09:50", fim: "10:40" },
+  { id: "m5", label: "5º horário", inicio: "10:40", fim: "11:30" },
+  { id: "m6", label: "6º horário", inicio: "11:30", fim: "12:20" },
+  { id: "alm", label: "Almoço", inicio: "12:20", fim: "13:00", intervalo: true },
+  { id: "t1", label: "1º horário", inicio: "13:00", fim: "13:50" },
+  { id: "t2", label: "2º horário", inicio: "13:50", fim: "14:40" },
+  { id: "t3", label: "3º horário", inicio: "14:40", fim: "15:30" },
+  { id: "int2", label: "Intervalo", inicio: "15:30", fim: "15:50", intervalo: true },
+  { id: "t4", label: "4º horário", inicio: "15:50", fim: "16:40" },
+  { id: "t5", label: "5º horário", inicio: "16:40", fim: "17:30" },
+  { id: "t6", label: "6º horário", inicio: "17:30", fim: "18:20" },
+];
+
+const DIAS = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
+
+</script>
+
+<!-- Código do sistema (não precisa editar daqui para baixo) -->
+<script>
+const { useState, useEffect } = React;
+// Cores do visual
+const T = {
+    bg: "#0A0A0B", surface: "#131315", surface2: "#1B1B1E",
+    border: "rgba(255,255,255,0.08)",
+    text: "#F5F5F5", muted: "#A1A1AA", dim: "#6B6B73",
+    red: "#E10600", redHover: "#FF1F1A", amber: "#F5A524", green: "#4ADE80",
+};
+// =====================================================================
+const configurado = !String(firebaseConfig.apiKey).startsWith("COLE");
+const db = configurado ? (firebase.initializeApp(firebaseConfig), firebase.firestore()) : null;
+// Cada horário de cada dia é um documento em "slots" (ex: 2026-09-23_m1) com a lista de reservas
+const slotRef = (data, horarioId) => db.collection("slots").doc(`${data}_${horarioId}`);
+const CORES = ["#E10600", "#60A5FA", "#FACC15", "#4ADE80", "#F472B6", "#A78BFA", "#FB923C", "#22D3EE"];
+const corMateria = m => CORES[Math.max(0, MATERIAS.indexOf(m)) % CORES.length];
+function inicioDaSemana(d) {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    const dow = x.getDay();
+    x.setDate(x.getDate() + (dow === 0 ? -6 : 1 - dow));
+    return x;
+}
+const addDias = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const chave = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const fmtDia = d => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+const fmtChave = k => { const [, m, d] = k.split("-"); return `${d}/${m}`; };
+const diaDaChave = k => { const [y, m, d] = k.split("-").map(Number); return DIAS[new Date(y, m - 1, d).getDay() - 1] || ""; };
+const jaPassou = (dataKey, fim) => new Date(`${dataKey}T${fim}:00`) < new Date();
+const agora = () => new Date().toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+const usados = lista => lista.filter(r => r.status !== "Devolvido").reduce((a, r) => a + r.quantidade, 0);
+// Lembra nome e matéria do professor neste aparelho (só para preencher mais rápido)
+const MEU_KEY = "tablets-professor";
+const lerMeuPerfil = () => { try {
+    return JSON.parse(localStorage.getItem(MEU_KEY) || "{}");
+}
+catch {
+    return {};
+} };
+const salvarMeuPerfil = p => { try {
+    localStorage.setItem(MEU_KEY, JSON.stringify(p));
+}
+catch { } };
+const CSS = `
+.tb, .tb * { box-sizing: border-box; }
+.tb { color-scheme: dark; -webkit-font-smoothing: antialiased; }
+.tb table { color: inherit; font-size: inherit; }
+.tb button { font-family: inherit; transition: background .15s, border-color .15s, color .15s, opacity .15s; }
+.tb .btn-red:hover:not(:disabled) { background: ${T.redHover} !important; }
+.tb .btn-sec:hover { background: rgba(255,255,255,0.14) !important; }
+.tb .slot { transition: background .15s; }
+.tb .slot:hover { background: ${T.surface2} !important; }
+.tb .inp { transition: border-color .15s; }
+.tb .inp:focus { border-color: ${T.red} !important; outline: none; }
+.tb .inp::placeholder { color: ${T.dim}; }
+.tb select option { background: ${T.surface2}; color: ${T.text}; }
+.tb ::-webkit-scrollbar { width: 8px; height: 8px; }
+.tb ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 8px; }
+.tb ::-webkit-scrollbar-track { background: transparent; }
+`;
+const rotulo = { fontSize: 12, fontWeight: 500, color: T.red, textTransform: "uppercase", letterSpacing: 1.2 };
+const inputStyle = { width: "100%", padding: "12px 14px", borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 15, background: T.surface2, color: T.text, fontFamily: "inherit" };
+const labelStyle = { fontSize: 13, fontWeight: 500, color: T.muted, display: "block", marginBottom: 8 };
+const btnRed = { padding: "12px 22px", borderRadius: 8, border: "none", background: T.red, color: "#fff", fontSize: 15, fontWeight: 500, cursor: "pointer" };
+const btnSec = { padding: "10px 18px", borderRadius: 8, border: "none", background: "rgba(255,255,255,0.08)", color: T.text, fontSize: 14, fontWeight: 400, cursor: "pointer" };
+const btnNav = { ...btnSec, width: 40, height: 40, padding: 0, fontSize: 18 };
+const btnMini = cor => ({ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: cor, fontWeight: 500, fontSize: 12, cursor: "pointer" });
+const pagina = { fontFamily: "'Roboto', 'Segoe UI', Arial, sans-serif", minHeight: "100vh", background: T.bg, color: T.text };
+function StatusBadge({ status }) {
+    const cor = status === "Devolvido" ? T.green : T.amber;
+    return (React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 6, color: cor, background: `${cor}1A`, padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 500, whiteSpace: "nowrap" } },
+        React.createElement("span", { style: { width: 6, height: 6, borderRadius: "50%", background: cor } }),
+        status));
+}
+function Aviso({ titulo, children }) {
+    return (React.createElement("div", { className: "tb", style: { ...pagina, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 } },
+        React.createElement("style", null, CSS),
+        React.createElement("div", { style: { background: T.surface, border: "1px solid rgba(225,6,0,0.35)", borderRadius: 16, padding: 28, maxWidth: 480 } },
+            React.createElement("div", { style: rotulo }, "Configura\u00E7\u00E3o"),
+            React.createElement("h2", { style: { fontWeight: 400, fontSize: 26, margin: "8px 0 10px" } }, titulo),
+            React.createElement("div", { style: { color: T.muted, fontWeight: 300, lineHeight: 1.5 } }, children))));
+}
+function App() {
+    const perfil = lerMeuPerfil();
+    const [view, setView] = useState("agenda");
+    const [reservas, setReservas] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [erroConexao, setErroConexao] = useState("");
+    const [semana, setSemana] = useState(() => inicioDaSemana(new Date()));
+    const [modal, setModal] = useState(null); // { data, dataObj, horario }
+    const [form, setForm] = useState({ nome: perfil.nome || "", materia: perfil.materia || "", turma: "", quantidade: 1, observacao: "" });
+    const [erro, setErro] = useState("");
+    const [sucesso, setSucesso] = useState("");
+    const [filtro, setFiltro] = useState("Todos");
+    const [adminPin, setAdminPin] = useState("");
+    const [adminOk, setAdminOk] = useState(false);
+    const [pinErro, setPinErro] = useState(false);
+    // Escuta as reservas da semana em tempo real
+    useEffect(() => {
+        if (!db)
+            return;
+        setLoading(true);
+        const q = db.collection("slots").where("data", ">=", chave(semana)).where("data", "<=", chave(addDias(semana, 4)));
+        const parar = q.onSnapshot(snap => {
+            const lista = [];
+            snap.forEach(d => {
+                const s = d.data();
+                (s.reservas || []).forEach(r => lista.push({ ...r, data: s.data, horarioId: s.horarioId }));
+            });
+            setReservas(lista);
+            setLoading(false);
+            setErroConexao("");
+        }, err => {
+            console.error(err);
+            setErroConexao("Não foi possível acessar o banco de dados. Confira a configuração e as regras do Firebase.");
+            setLoading(false);
+        });
+        return parar;
+    }, [semana]);
+    if (!configurado)
+        return (React.createElement(Aviso, { titulo: "Falta conectar o Firebase" },
+            "Abra o arquivo ",
+            React.createElement("b", null, "index.html"),
+            " e cole a configura\u00E7\u00E3o do seu projeto Firebase no bloco",
+            React.createElement("b", null, " firebaseConfig"),
+            ", no topo do c\u00F3digo. Depois salve o arquivo e recarregue a p\u00E1gina."));
+    // Altera um horário com segurança (transação): evita que dois professores ultrapassem o total ao mesmo tempo
+    async function alterarSlot(data, horarioId, alterar) {
+        setSaving(true);
+        try {
+            await db.runTransaction(async (tx) => {
+                const ref = slotRef(data, horarioId);
+                const snap = await tx.get(ref);
+                const atual = snap.exists ? (snap.data().reservas || []) : [];
+                tx.set(ref, { data, horarioId, reservas: alterar(atual) });
+            });
+        }
+        finally {
+            setSaving(false);
+        }
+    }
+    const doSlot = (lista, data, horarioId) => lista.filter(r => r.data === data && r.horarioId === horarioId);
+    function abrirSlot(dataObj, horario) {
+        setModal({ data: chave(dataObj), dataObj, horario });
+        setForm(f => ({ nome: f.nome, materia: f.materia, turma: "", quantidade: 1, observacao: "" }));
+        setErro("");
+    }
+    async function reservar() {
+        if (!form.nome.trim() || !form.materia || !form.turma.trim() || !modal)
+            return;
+        const { data, dataObj, horario } = modal;
+        const nova = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            data,
+            horarioId: horario.id,
+            nome: form.nome.trim(),
+            materia: form.materia,
+            turma: form.turma.trim(),
+            quantidade: form.quantidade,
+            observacao: form.observacao.trim(),
+            criadoEm: agora(),
+            horarioDevolucao: "",
+            status: "Reservado",
+        };
+        try {
+            await alterarSlot(data, horario.id, atual => {
+                const livres = TOTAL_TABLETS - usados(atual);
+                if (nova.quantidade > livres)
+                    throw new Error(`Só restam ${livres} tablet(s) neste horário.`);
+                return [...atual, nova];
+            });
+        }
+        catch (e) {
+            setErro(e.message && e.message.startsWith("Só restam") ? e.message : "Não foi possível salvar. Verifique a internet e tente de novo.");
+            return;
+        }
+        salvarMeuPerfil({ nome: nova.nome, materia: nova.materia });
+        setModal(null);
+        setSucesso(`Reserva confirmada: ${nova.quantidade} tablet(s) · ${DIAS[dataObj.getDay() - 1]} ${fmtDia(dataObj)} · ${horario.label}`);
+        setTimeout(() => setSucesso(""), 4000);
+    }
+    async function devolver(r) {
+        try {
+            await alterarSlot(r.data, r.horarioId, atual => atual.map(x => x.id === r.id ? { ...x, status: "Devolvido", horarioDevolucao: agora() } : x));
+        }
+        catch {
+            alert("Não foi possível salvar. Tente de novo.");
+        }
+    }
+    async function excluir(r) {
+        if (!confirm("Excluir esta reserva?"))
+            return;
+        try {
+            await alterarSlot(r.data, r.horarioId, atual => atual.filter(x => x.id !== r.id));
+        }
+        catch {
+            alert("Não foi possível excluir. Tente de novo.");
+        }
+    }
+    function entrarAdmin() {
+        if (adminPin === PIN) {
+            setAdminOk(true);
+            setPinErro(false);
+            setAdminPin("");
+        }
+        else {
+            setPinErro(true);
+            setAdminPin("");
+        }
+    }
+    const diasSemana = DIAS.map((_, i) => addDias(semana, i));
+    const hojeKey = chave(new Date());
+    const ordemHorario = id => HORARIOS.findIndex(h => h.id === id);
+    const reservasSemana = [...reservas].sort((a, b) => a.data.localeCompare(b.data) || ordemHorario(a.horarioId) - ordemHorario(b.horarioId));
+    const reservasFiltradas = filtro === "Todos" ? reservasSemana : reservasSemana.filter(r => r.status === filtro);
+    const emAberto = reservasSemana.filter(r => r.status === "Reservado").length;
+    // ---------- Janela do horário ----------
+    function renderModal() {
+        if (!modal)
+            return null;
+        const lista = doSlot(reservas, modal.data, modal.horario.id);
+        const livres = TOTAL_TABLETS - usados(lista);
+        const passado = jaPassou(modal.data, modal.horario.fim);
+        const nomeDia = DIAS[modal.dataObj.getDay() - 1];
+        const podeReservar = form.nome.trim() && form.materia && form.turma.trim() && !saving;
+        return (React.createElement("div", { onClick: () => setModal(null), style: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 } },
+            React.createElement("div", { onClick: e => e.stopPropagation(), style: { background: T.surface, border: "1px solid rgba(225,6,0,0.35)", borderRadius: 16, padding: 28, width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto" } },
+                React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" } },
+                    React.createElement("div", null,
+                        React.createElement("div", { style: rotulo },
+                            nomeDia,
+                            ", ",
+                            fmtDia(modal.dataObj)),
+                        React.createElement("h2", { style: { margin: "8px 0 0", fontSize: 28, fontWeight: 400, letterSpacing: "-0.02em" } }, modal.horario.label),
+                        React.createElement("div", { style: { color: T.muted, fontSize: 15, fontWeight: 300, marginTop: 2 } },
+                            modal.horario.inicio,
+                            " \u2013 ",
+                            modal.horario.fim)),
+                    React.createElement("button", { onClick: () => setModal(null), className: "btn-sec", style: { ...btnNav, width: 36, height: 36 } }, "\u00D7")),
+                React.createElement("div", { style: { margin: "22px 0", display: "flex", alignItems: "baseline", gap: 8 } },
+                    React.createElement("span", { style: { fontSize: 44, fontWeight: 400, letterSpacing: "-0.03em", color: livres > 0 ? T.text : T.red } }, livres),
+                    React.createElement("span", { style: { color: T.muted, fontSize: 15, fontWeight: 300 } },
+                        "de ",
+                        TOTAL_TABLETS,
+                        " tablets dispon\u00EDveis")),
+                lista.length > 0 && (React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 } }, lista.map(r => (React.createElement("div", { key: r.id, style: { background: T.surface2, borderLeft: `3px solid ${corMateria(r.materia)}`, borderRadius: 8, padding: "10px 14px" } },
+                    React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" } },
+                        React.createElement("div", { style: { fontWeight: 500, fontSize: 14 } }, r.nome || "—"),
+                        React.createElement(StatusBadge, { status: r.status })),
+                    React.createElement("div", { style: { fontSize: 13, color: T.muted, marginTop: 3, fontWeight: 300 } },
+                        "Prof. de ",
+                        r.materia,
+                        " \u00B7 ",
+                        r.turma,
+                        " \u00B7 ",
+                        r.quantidade,
+                        " tablet",
+                        r.quantidade > 1 ? "s" : ""),
+                    r.observacao && React.createElement("div", { style: { fontSize: 12, color: T.dim, fontStyle: "italic", marginTop: 3 } },
+                        "\"",
+                        r.observacao,
+                        "\""),
+                    adminOk && r.status === "Reservado" && (React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8 } },
+                        React.createElement("button", { onClick: () => devolver(r), style: btnMini(T.green) }, "Marcar devolvido"),
+                        React.createElement("button", { onClick: () => excluir(r), style: btnMini(T.red) }, "Excluir")))))))),
+                passado ? (React.createElement("div", { style: { fontSize: 14, color: T.dim, textAlign: "center", padding: 8 } }, "Este hor\u00E1rio j\u00E1 passou.")) : livres <= 0 ? (React.createElement("div", { style: { fontSize: 14, color: T.red, textAlign: "center", padding: 8 } }, "Todos os tablets j\u00E1 est\u00E3o reservados neste hor\u00E1rio.")) : (React.createElement("div", null,
+                    React.createElement("label", { style: { display: "block", marginBottom: 16 } },
+                        React.createElement("span", { style: labelStyle }, "Seu nome *"),
+                        React.createElement("input", { className: "inp", type: "text", placeholder: "Digite seu nome", value: form.nome, onChange: e => setForm(f => ({ ...f, nome: e.target.value })), style: inputStyle })),
+                    React.createElement("label", { style: { display: "block", marginBottom: 16 } },
+                        React.createElement("span", { style: labelStyle }, "Professor de *"),
+                        React.createElement("select", { className: "inp", value: form.materia, onChange: e => setForm(f => ({ ...f, materia: e.target.value })), style: { ...inputStyle, cursor: "pointer" } },
+                            React.createElement("option", { value: "" }, "Selecione a mat\u00E9ria..."),
+                            MATERIAS.map(m => React.createElement("option", { key: m, value: m }, m)))),
+                    React.createElement("label", { style: { display: "block", marginBottom: 16 } },
+                        React.createElement("span", { style: labelStyle }, "Turma / Destino *"),
+                        React.createElement("input", { className: "inp", type: "text", placeholder: "Ex: 7\u00BA Ano A, Laborat\u00F3rio...", value: form.turma, onChange: e => setForm(f => ({ ...f, turma: e.target.value })), style: inputStyle })),
+                    React.createElement("div", { style: { marginBottom: 16 } },
+                        React.createElement("span", { style: labelStyle }, "Quantidade de tablets *"),
+                        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } },
+                            React.createElement("button", { className: "btn-sec", onClick: () => setForm(f => ({ ...f, quantidade: Math.max(1, f.quantidade - 1) })), style: btnNav }, "\u2212"),
+                            React.createElement("input", { className: "inp", type: "number", min: 1, max: livres, value: form.quantidade, onChange: e => setForm(f => ({ ...f, quantidade: Math.min(livres, Math.max(1, Number(e.target.value) || 1)) })), style: { ...inputStyle, width: 72, textAlign: "center", fontSize: 20, padding: "6px 8px" } }),
+                            React.createElement("button", { className: "btn-sec", onClick: () => setForm(f => ({ ...f, quantidade: Math.min(livres, f.quantidade + 1) })), style: btnNav }, "+"),
+                            React.createElement("button", { className: "btn-sec", onClick: () => setForm(f => ({ ...f, quantidade: livres })), style: { ...btnSec, fontSize: 13 } },
+                                "Todos (",
+                                livres,
+                                ")"))),
+                    React.createElement("label", { style: { display: "block", marginBottom: 20 } },
+                        React.createElement("span", { style: labelStyle }, "Observa\u00E7\u00E3o (opcional)"),
+                        React.createElement("textarea", { className: "inp", rows: 2, value: form.observacao, onChange: e => setForm(f => ({ ...f, observacao: e.target.value })), style: { ...inputStyle, resize: "vertical" } })),
+                    erro && React.createElement("div", { style: { color: T.red, fontSize: 13, marginBottom: 12 } }, erro),
+                    React.createElement("button", { className: "btn-red", onClick: reservar, disabled: !podeReservar, style: { ...btnRed, width: "100%", padding: 15, opacity: podeReservar ? 1 : 0.35, cursor: podeReservar ? "pointer" : "not-allowed" } }, saving ? "Salvando..." : "Reservar tablets"))))));
+    }
+    return (React.createElement("div", { className: "tb", style: pagina },
+        React.createElement("style", null, CSS),
+        React.createElement("header", { style: { borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 20, background: "rgba(10,10,11,0.85)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" } },
+            React.createElement("div", { style: { maxWidth: 1200, margin: "0 auto", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" } },
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+                    React.createElement("span", { style: { width: 10, height: 10, borderRadius: 2, background: T.red } }),
+                    React.createElement("span", { style: { fontWeight: 700, letterSpacing: 2, fontSize: 13, textTransform: "uppercase" } }, "Tablets"),
+                    saving && React.createElement("span", { style: { color: T.dim, fontSize: 12, marginLeft: 6 } }, "Salvando...")),
+                React.createElement("nav", { style: { display: "flex", gap: 8 } }, [["agenda", "Agenda"], ["admin", `Painel${emAberto > 0 ? ` (${emAberto})` : ""}`]].map(([v, txt]) => (React.createElement("button", { key: v, onClick: () => setView(v), className: view === v ? "btn-red" : "btn-sec", style: view === v ? { ...btnRed, padding: "9px 18px", fontSize: 14 } : { ...btnSec, padding: "9px 18px" } }, txt)))))),
+        React.createElement("main", { style: { maxWidth: 1200, margin: "0 auto", padding: "0 16px 60px" } },
+            React.createElement("section", { style: { padding: "48px 0 28px" } },
+                React.createElement("div", { style: rotulo }, view === "agenda" ? "Agenda semanal" : "Área restrita"),
+                React.createElement("h1", { style: { fontSize: "clamp(34px, 5.5vw, 56px)", fontWeight: 400, letterSpacing: "-0.03em", lineHeight: 1.05, margin: "12px 0 14px" } },
+                    "Sistema de Agendamento",
+                    React.createElement("br", null),
+                    "de Tablets."),
+                React.createElement("p", { style: { color: T.muted, fontSize: 18, fontWeight: 300, margin: 0, maxWidth: 560 } }, view === "agenda"
+                    ? "Escolha o dia e o horário, informe sua turma e reserve os tablets em poucos segundos."
+                    : "Acompanhe as reservas da semana e registre as devoluções.")),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 18 } },
+                React.createElement("div", { style: { display: "flex", gap: 6 } },
+                    React.createElement("button", { className: "btn-sec", onClick: () => setSemana(s => addDias(s, -7)), style: btnNav }, "\u2039"),
+                    React.createElement("button", { className: "btn-sec", onClick: () => setSemana(inicioDaSemana(new Date())), style: { ...btnSec, height: 40 } }, "Hoje"),
+                    React.createElement("button", { className: "btn-sec", onClick: () => setSemana(s => addDias(s, 7)), style: btnNav }, "\u203A")),
+                React.createElement("div", { style: { fontSize: 20, fontWeight: 400, letterSpacing: "-0.01em" } },
+                    fmtDia(diasSemana[0]),
+                    " \u2013 ",
+                    fmtDia(diasSemana[4]),
+                    " ",
+                    React.createElement("span", { style: { color: T.dim } }, diasSemana[4].getFullYear())),
+                React.createElement("div", { style: { fontSize: 13, color: T.dim } }, loading ? "Carregando..." : `${TOTAL_TABLETS} tablets no total`)),
+            erroConexao && (React.createElement("div", { style: { background: "rgba(225,6,0,0.08)", border: "1px solid rgba(225,6,0,0.35)", borderRadius: 10, padding: "12px 16px", marginBottom: 16, color: "#FF6B66", fontSize: 14 } }, erroConexao)),
+            sucesso && (React.createElement("div", { style: { background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.3)", borderRadius: 10, padding: "12px 16px", marginBottom: 16, color: T.green, fontSize: 14 } }, sucesso)),
+            view === "agenda" && (React.createElement("div", { style: { overflowX: "auto", background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, opacity: loading ? 0.5 : 1, transition: "opacity .2s" } },
+                React.createElement("table", { style: { borderCollapse: "collapse", width: "100%", minWidth: 800, tableLayout: "fixed" } },
+                    React.createElement("thead", null,
+                        React.createElement("tr", null,
+                            React.createElement("th", { style: { width: 100, position: "sticky", left: 0, background: T.surface, zIndex: 2, borderBottom: `1px solid ${T.border}` } }),
+                            diasSemana.map((d, i) => {
+                                const hoje = chave(d) === hojeKey;
+                                return (React.createElement("th", { key: i, style: { padding: "16px 6px 14px", borderBottom: `1px solid ${T.border}`, borderLeft: `1px solid ${T.border}`, fontWeight: 400 } },
+                                    React.createElement("div", { style: { fontSize: 11, letterSpacing: 1.4, textTransform: "uppercase", color: hoje ? T.red : T.dim, fontWeight: 500 } }, DIAS[i]),
+                                    React.createElement("div", { style: { display: "inline-flex", alignItems: "center", justifyContent: "center", marginTop: 6, width: 38, height: 38, borderRadius: "50%", fontSize: 20, fontWeight: 400,
+                                            background: hoje ? T.red : "transparent", color: hoje ? "#fff" : T.text } }, d.getDate())));
+                            }))),
+                    React.createElement("tbody", null, HORARIOS.map(h => h.intervalo ? (React.createElement("tr", { key: h.id },
+                        React.createElement("td", { colSpan: 6, style: { background: T.bg, fontSize: 11, color: T.dim, padding: 6, letterSpacing: 1.4, textTransform: "uppercase", borderTop: `1px solid ${T.border}` } },
+                            React.createElement("span", { style: { position: "sticky", left: 12 } },
+                                h.label,
+                                " \u00B7 ",
+                                h.inicio,
+                                "\u2013",
+                                h.fim)))) : (React.createElement("tr", { key: h.id },
+                        React.createElement("td", { style: { position: "sticky", left: 0, background: T.surface, zIndex: 1, padding: "10px 12px", borderTop: `1px solid ${T.border}`, verticalAlign: "top" } },
+                            React.createElement("div", { style: { fontSize: 13, fontWeight: 500 } }, h.label),
+                            React.createElement("div", { style: { fontSize: 12, color: T.dim, fontWeight: 300 } },
+                                h.inicio,
+                                "\u2013",
+                                h.fim)),
+                        diasSemana.map((d, i) => {
+                            const k = chave(d);
+                            const lista = doSlot(reservas, k, h.id);
+                            const livres = TOTAL_TABLETS - usados(lista);
+                            const passado = jaPassou(k, h.fim);
+                            const corLivre = livres === 0 ? T.red : livres <= TOTAL_TABLETS * 0.3 ? T.amber : T.dim;
+                            return (React.createElement("td", { key: i, className: "slot", onClick: () => abrirSlot(d, h), style: { borderTop: `1px solid ${T.border}`, borderLeft: `1px solid ${T.border}`, padding: 5, verticalAlign: "top", cursor: "pointer", height: 70,
+                                    background: k === hojeKey ? "rgba(225,6,0,0.035)" : T.surface, opacity: passado ? 0.35 : 1 } },
+                                React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+                                    lista.map(r => (React.createElement("div", { key: r.id, title: `${r.nome || ""} · Prof. de ${r.materia} · ${r.turma} · ${r.quantidade} tablet(s)`, style: { background: "rgba(255,255,255,0.06)", borderLeft: `3px solid ${corMateria(r.materia)}`, borderRadius: 4, padding: "4px 7px", fontSize: 11, lineHeight: 1.35,
+                                            textDecoration: r.status === "Devolvido" ? "line-through" : "none", overflow: "hidden" } },
+                                        React.createElement("div", { style: { fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, r.nome ? r.nome.split(" ")[0] : r.materia),
+                                        React.createElement("div", { style: { color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: 300 } },
+                                            r.materia,
+                                            " \u00B7 ",
+                                            r.turma,
+                                            " \u00B7 ",
+                                            r.quantidade)))),
+                                    !passado && (React.createElement("div", { style: { fontSize: 11, fontWeight: 500, color: corLivre, padding: "2px 4px" } }, livres === 0 ? "Esgotado" : `${livres} livres`)))));
+                        })))))))),
+            view === "admin" && !adminOk && (React.createElement("div", { style: { background: T.surface, borderRadius: 16, padding: 32, maxWidth: 380, margin: "20px auto", border: "1px solid rgba(225,6,0,0.35)" } },
+                React.createElement("div", { style: rotulo }, "Acesso"),
+                React.createElement("h2", { style: { margin: "8px 0 6px", fontSize: 26, fontWeight: 400, letterSpacing: "-0.02em" } }, "Painel do administrador"),
+                React.createElement("p", { style: { color: T.muted, fontSize: 14, fontWeight: 300, margin: "0 0 20px" } }, "Digite o PIN para continuar."),
+                React.createElement("input", { className: "inp", type: "password", placeholder: "PIN", value: adminPin, onChange: e => setAdminPin(e.target.value), onKeyDown: e => e.key === "Enter" && entrarAdmin(), style: { ...inputStyle, fontSize: 20, textAlign: "center", letterSpacing: 10, borderColor: pinErro ? T.red : T.border, marginBottom: 10 } }),
+                pinErro && React.createElement("div", { style: { color: T.red, fontSize: 13, marginBottom: 10 } }, "PIN incorreto."),
+                React.createElement("button", { className: "btn-red", onClick: entrarAdmin, style: { ...btnRed, width: "100%" } }, "Entrar"))),
+            view === "admin" && adminOk && (React.createElement("div", null,
+                React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 } }, [
+                    { label: "Reservas na semana", valor: reservasSemana.length },
+                    { label: "Em aberto", valor: emAberto },
+                    { label: "Tablets reservados", valor: usados(reservasSemana) },
+                ].map(c => (React.createElement("div", { key: c.label, style: { background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: "18px 20px" } },
+                    React.createElement("div", { style: rotulo }, c.label),
+                    React.createElement("div", { style: { fontSize: 44, fontWeight: 300, letterSpacing: "-0.03em", marginTop: 6 } }, c.valor))))),
+                React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" } },
+                    ["Todos", "Reservado", "Devolvido"].map(f => (React.createElement("button", { key: f, onClick: () => setFiltro(f), style: {
+                            padding: "7px 18px", borderRadius: 20, fontSize: 13, cursor: "pointer", fontWeight: 500,
+                            border: `1px solid ${filtro === f ? T.text : T.border}`,
+                            background: filtro === f ? T.text : "transparent", color: filtro === f ? T.bg : T.muted,
+                        } }, f))),
+                    React.createElement("button", { className: "btn-sec", onClick: () => setAdminOk(false), style: { ...btnSec, marginLeft: "auto", fontSize: 13, padding: "7px 14px" } }, "Sair")),
+                reservasFiltradas.length === 0 ? (React.createElement("div", { style: { background: T.surface, borderRadius: 14, padding: 48, textAlign: "center", color: T.dim, border: `1px dashed ${T.border}` } }, "Nenhuma reserva nesta semana.")) : (React.createElement("div", { style: { background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" } }, reservasFiltradas.map((r, idx) => {
+                    const h = HORARIOS.find(x => x.id === r.horarioId);
+                    return (React.createElement("div", { key: r.id, style: { padding: "18px 22px", borderTop: idx ? `1px solid ${T.border}` : "none", borderLeft: `3px solid ${corMateria(r.materia)}` } },
+                        React.createElement("div", { style: { display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, alignItems: "flex-start" } },
+                            React.createElement("div", { style: { minWidth: 0 } },
+                                React.createElement("div", { style: rotulo },
+                                    diaDaChave(r.data),
+                                    " \u00B7 ",
+                                    fmtChave(r.data),
+                                    " \u00B7 ", h === null || h === void 0 ? void 0 :
+                                    h.label,
+                                    " \u00B7 ", h === null || h === void 0 ? void 0 :
+                                    h.inicio,
+                                    "\u2013", h === null || h === void 0 ? void 0 :
+                                    h.fim),
+                                React.createElement("div", { style: { fontSize: 19, fontWeight: 500, marginTop: 6 } }, r.nome || "—"),
+                                React.createElement("div", { style: { fontSize: 14, color: T.muted, fontWeight: 300, marginTop: 3 } },
+                                    "Prof. de ",
+                                    r.materia,
+                                    " \u00B7 ",
+                                    r.turma,
+                                    " \u00B7 ",
+                                    r.quantidade,
+                                    " tablet",
+                                    r.quantidade > 1 ? "s" : ""),
+                                r.observacao && React.createElement("div", { style: { fontSize: 13, color: T.dim, marginTop: 4, fontStyle: "italic" } },
+                                    "\"",
+                                    r.observacao,
+                                    "\""),
+                                React.createElement("div", { style: { display: "flex", gap: 14, marginTop: 8, fontSize: 12, color: T.dim, flexWrap: "wrap" } },
+                                    React.createElement("span", null,
+                                        "Reservado em ",
+                                        r.criadoEm),
+                                    r.horarioDevolucao && React.createElement("span", null,
+                                        "Devolvido em ",
+                                        r.horarioDevolucao))),
+                            React.createElement("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 } },
+                                React.createElement(StatusBadge, { status: r.status }),
+                                React.createElement("div", { style: { display: "flex", gap: 6 } },
+                                    r.status === "Reservado" && React.createElement("button", { onClick: () => devolver(r), style: btnMini(T.green) }, "Marcar devolvido"),
+                                    React.createElement("button", { onClick: () => excluir(r), style: btnMini(T.red) }, "Excluir"))))));
+                })))))),
+        renderModal()));
+}
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
+</script>
+</body>
+</html>
