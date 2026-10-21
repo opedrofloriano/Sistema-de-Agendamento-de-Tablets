@@ -1,0 +1,25 @@
+{
+  "units": [
+    { "name": "Castelo II", "tablets": 30 },
+    { "name": "Floresta", "tablets": 30 }
+  ],
+  "dayStartMinutes": 420,
+  "dayEndMinutes": 1100,
+  "minDurationMinutes": 15,
+  "timezone": "America/Sao_Paulo",
+  "limits": { "title": 80, "teacher": 80, "className": 40, "notes": 500 },
+  "periods": [
+    { "id": "m1", "label": "1º horário (manhã)", "start": "07:00", "end": "07:50" },
+    { "id": "m2", "label": "2º horário (manhã)", "start": "07:50", "end": "08:40" },
+    { "id": "m3", "label": "3º horário (manhã)", "start": "08:40", "end": "09:30" },
+    { "id": "m4", "label": "4º horário (manhã)", "start": "09:50", "end": "10:40" },
+    { "id": "m5", "label": "5º horário (manhã)", "start": "10:40", "end": "11:30" },
+    { "id": "m6", "label": "6º horário (manhã)", "start": "11:30", "end": "12:20" },
+    { "id": "t1", "label": "1º horário (tarde)", "start": "13:00", "end": "13:50" },
+    { "id": "t2", "label": "2º horário (tarde)", "start": "13:50", "end": "14:40" },
+    { "id": "t3", "label": "3º horário (tarde)", "start": "14:40", "end": "15:30" },
+    { "id": "t4", "label": "4º horário (tarde)", "start": "15:50", "end": "16:40" },
+    { "id": "t5", "label": "5º horário (tarde)", "start": "16:40", "end": "17:30" },
+    { "id": "t6", "label": "6º horário (tarde)", "start": "17:30", "end": "18:20" }
+  ]
+}
