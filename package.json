@@ -1,0 +1,27 @@
+{
+  "name": "agendamento-tablets",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Agendamento dos tablets das unidades Castelo II e Floresta, cada uma com o próprio acervo.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node --disable-warning=ExperimentalWarning server/main.ts",
+    "dev": "node --disable-warning=ExperimentalWarning scripts/dev.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --disable-warning=ExperimentalWarning --test \"tests/*.test.ts\""
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "^0.28.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "typescript": "^6.0.0"
+  }
+}
