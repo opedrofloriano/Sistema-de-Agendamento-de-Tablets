@@ -23,6 +23,8 @@ interface TopbarProps {
   onNext: () => void;
   onToday: () => void;
   onCreate: () => void;
+  /** No Painel, a navegação de semanas e a busca não se aplicam. */
+  mode?: 'agenda' | 'painel';
 }
 
 export function Topbar(props: TopbarProps) {
@@ -51,6 +53,11 @@ export function Topbar(props: TopbarProps) {
         </div>
       </div>
 
+      {props.mode === 'painel' ? (
+        <div className="toolbar">
+          <h1>Painel de uso</h1>
+        </div>
+      ) : (
       <nav className="toolbar" aria-label="Navegação da agenda">
         <button type="button" className="today-button" onClick={props.onToday}>
           Hoje
@@ -68,7 +75,9 @@ export function Topbar(props: TopbarProps) {
           </span>
         </h1>
       </nav>
+      )}
 
+      {props.mode !== 'painel' && (
       <div className="search-box">
         <SearchIcon size={18} aria-hidden="true" />
         <input
@@ -86,6 +95,7 @@ export function Topbar(props: TopbarProps) {
           </button>
         )}
       </div>
+      )}
 
       <div className="topbar-actions">
         <button

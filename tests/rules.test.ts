@@ -11,7 +11,7 @@ const r = (
   end: string,
   quantity: number,
   status: Reservation['status'] = 'confirmada',
-  unit = 'Floresta',
+  unit = 'Castelo I',
 ) => ({
   id,
   unit,
@@ -24,7 +24,7 @@ const r = (
 const input = (over: Partial<ReservationInput> = {}): ReservationInput => ({
   title: 'Leitura',
   teacher: 'Ana',
-  unit: 'Floresta',
+  unit: 'Castelo I',
   className: '',
   quantity: 10,
   date: '2026-10-21',
@@ -48,8 +48,8 @@ test('soma reservas que se sobrepõem e ignora as que só encostam', () => {
 test('cada unidade tem o próprio acervo: reservas de uma não ocupam a outra', () => {
   const castelo = [r('a', '08:00', '09:00', 30, 'confirmada', 'Castelo II')];
   assert.equal(freeTablets(castelo, 'Castelo II', at(8), at(9), DEFAULT_CONFIG), 0);
-  assert.equal(freeTablets(castelo, 'Floresta', at(8), at(9), DEFAULT_CONFIG), 30);
-  // Floresta pode reservar os 30 dela mesmo com o Castelo II lotado.
+  assert.equal(freeTablets(castelo, 'Castelo I', at(8), at(9), DEFAULT_CONFIG), 30);
+  // Castelo I pode reservar os 30 dela mesmo com o Castelo II lotado.
   const res = validateReservation(input({ startTime: '08:00', endTime: '09:00', quantity: 30 }), castelo, NOW, DEFAULT_CONFIG);
   assert.equal(res.ok, true);
   const blocked = validateReservation(
@@ -63,7 +63,7 @@ test('cada unidade tem o próprio acervo: reservas de uma não ocupam a outra', 
 });
 
 test('o acervo de cada unidade pode ter tamanho diferente', () => {
-  const cfg = { ...DEFAULT_CONFIG, units: [{ name: 'Castelo II', tablets: 30 }, { name: 'Floresta', tablets: 20 }] };
+  const cfg = { ...DEFAULT_CONFIG, units: [{ name: 'Castelo II', tablets: 30 }, { name: 'Castelo I', tablets: 20 }] };
   const tooMany = validateReservation(input({ quantity: 21 }), [], NOW, cfg);
   assert.equal(!tooMany.ok && tooMany.field, 'quantity');
   assert.match(!tooMany.ok ? tooMany.error : '', /entre 1 e 20/);
@@ -73,14 +73,14 @@ test('o acervo de cada unidade pode ter tamanho diferente', () => {
 test('pico da semana é calculado por unidade', () => {
   const list = [
     r('a', '08:00', '09:00', 30, 'confirmada', 'Castelo II'),
-    r('b', '08:00', '09:00', 12, 'confirmada', 'Floresta'),
+    r('b', '08:00', '09:00', 12, 'confirmada', 'Castelo I'),
   ];
   const peaks = busiestByUnit(list, new Date(2026, 9, 19), new Date(2026, 9, 24), DEFAULT_CONFIG);
   assert.deepEqual(
     peaks.map((p) => [p.unit, p.quantity, p.tablets]),
     [
+      ['Castelo I', 12, 30],
       ['Castelo II', 30, 30],
-      ['Floresta', 12, 30],
     ],
   );
 });
@@ -102,7 +102,7 @@ test('informa quantos tablets ainda cabem', () => {
   const list = [r('a', '08:00', '09:00', 25)];
   const res = validateReservation(input({ startTime: '08:30', endTime: '09:30', quantity: 6 }), list, NOW, DEFAULT_CONFIG);
   assert.equal(res.ok, false);
-  assert.match(!res.ok ? res.error : '', /apenas 5 tablets livres da unidade Floresta/);
+  assert.match(!res.ok ? res.error : '', /apenas 5 tablets livres da unidade Castelo I/);
   assert.equal(validateReservation(input({ startTime: '08:30', endTime: '09:30', quantity: 5 }), list, NOW, DEFAULT_CONFIG).ok, true);
 });
 

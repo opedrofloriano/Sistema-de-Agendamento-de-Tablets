@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   addDays,
   busiestByUnit,
+  isStaff,
   isWeekend,
   minutesOfDay,
   minutesToTime,
@@ -16,6 +17,7 @@ import {
 } from '../../shared/rules.ts';
 import type { AppConfig, MeResponse, Reservation, ReservationInput } from '../../shared/types.ts';
 import { api } from './api.ts';
+import { AdminPanel } from './components/AdminPanel.tsx';
 import { ReservationDetails } from './components/ReservationDetails.tsx';
 import { ReservationForm } from './components/ReservationForm.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
@@ -23,7 +25,7 @@ import { SummaryCards } from './components/SummaryCards.tsx';
 import { Topbar } from './components/Topbar.tsx';
 import { WeekCalendar } from './components/WeekCalendar.tsx';
 import { normalizeSearch, useDebounced, useNow } from './hooks.ts';
-import { CalendarIcon, InfoIcon } from './icons.tsx';
+import { CalendarIcon, ChartIcon, InfoIcon } from './icons.tsx';
 
 const REFRESH_MS = 60_000;
 
@@ -48,6 +50,9 @@ function nextSlot(config: AppConfig, selected: Date, now: Date) {
   return { date: day, ...slotForHour(config, Math.floor(config.dayStartMinutes / 60)) };
 }
 
+type View = 'agenda' | 'painel';
+const viewFromHash = (staff: boolean): View => (staff && window.location.hash === '#painel' ? 'painel' : 'agenda');
+
 interface FormState {
   key: number;
   date: Date;
@@ -69,6 +74,22 @@ export function App({ me }: { me: MeResponse }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [toast, setToast] = useState('');
   const [searchHit, setSearchHit] = useState<Reservation | null | undefined>(undefined);
+  const staff = isStaff(user.role);
+  const [view, setViewState] = useState<View>(() => viewFromHash(staff));
+
+  // A aba fica no endereço (#painel), então o botão Voltar do navegador funciona.
+  useEffect(() => {
+    const onHash = () => setViewState(viewFromHash(staff));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [staff]);
+  const setView = (v: View) => {
+    if (v === view) return;
+    if (v === 'painel') window.location.hash = 'painel';
+    else history.pushState(null, '', window.location.pathname + window.location.search);
+    setViewState(v);
+    window.scrollTo(0, 0);
+  };
 
   const weekStart = startOfWeek(selectedDate);
   const weekKey = toDateKey(weekStart);
@@ -162,7 +183,7 @@ export function App({ me }: { me: MeResponse }) {
 
   const selected = reservations.find((r) => r.id === selectedId) ?? null;
   const firstVisibleUnit = (config.units.find((u) => !hiddenUnits.has(u.name)) ?? config.units[0]).name;
-  const canManage = (r: Reservation) => user.role === 'coordenacao' || r.ownerId === user.id;
+  const canManage = (r: Reservation) => staff || r.ownerId === user.id;
 
   const openForm = (date: Date, startTime: string, endTime: string) =>
     setFormState((prev) => ({ key: (prev?.key ?? 0) + 1, date, startTime, endTime }));
@@ -211,6 +232,7 @@ export function App({ me }: { me: MeResponse }) {
           const s = nextSlot(config, selectedDate, now);
           openForm(s.date, s.startTime, s.endTime);
         }}
+        mode={view}
       />
 
       <div className="app-layout">
@@ -226,19 +248,35 @@ export function App({ me }: { me: MeResponse }) {
           onSelectDate={(d) => {
             setSelectedDate(d);
             setSidebarOpen(false);
+            setView('agenda');
           }}
           onToggleUnit={toggleUnit}
           onLogout={() => void api.logout()}
         />
 
         <main className="main-content">
+          {staff && (
+            <div className="view-tabs" role="tablist" aria-label="Telas">
+              <button type="button" role="tab" aria-selected={view === 'agenda'} onClick={() => setView('agenda')}>
+                <CalendarIcon size={16} aria-hidden="true" /> Agenda
+              </button>
+              <button type="button" role="tab" aria-selected={view === 'painel'} onClick={() => setView('painel')}>
+                <ChartIcon size={16} aria-hidden="true" /> Painel
+                <span className="tab-badge">{user.role === 'ti' ? 'TI' : 'Coordenação'}</span>
+              </button>
+            </div>
+          )}
           <div className="page-title">
             <div>
-              <p className="eyebrow">AGENDA ESCOLAR</p>
-              <h2>Agendamento de tablets</h2>
-              <p>Consulte a semana e reserve os tablets para as suas aulas.</p>
+              <p className="eyebrow">{view === 'painel' ? (user.role === 'ti' ? 'ADMINISTRAÇÃO · TI' : 'ADMINISTRAÇÃO · COORDENAÇÃO') : 'AGENDA ESCOLAR'}</p>
+              <h2>{view === 'painel' ? 'Painel de uso dos tablets' : 'Agendamento de tablets'}</h2>
+              <p>
+                {view === 'painel'
+                  ? 'Quem mais usa, em quais horários, o que falta devolver. Daqui também dá para cancelar reservas.'
+                  : 'Consulte a semana e reserve os tablets para as suas aulas.'}
+              </p>
             </div>
-            {me.authMode !== 'entra' && (
+            {(me.authMode === 'dev' || me.authMode === 'demo') && (
               <div className="demo-label" title={me.authMode === 'demo' ? 'As reservas ficam salvas só neste navegador.' : undefined}>
                 <InfoIcon size={16} aria-hidden="true" />{' '}
                 {me.authMode === 'demo' ? 'Demonstração · dados só neste navegador' : 'Modo de desenvolvimento'}
@@ -246,6 +284,18 @@ export function App({ me }: { me: MeResponse }) {
             )}
           </div>
 
+          {view === 'painel' ? (
+            <AdminPanel
+              user={user}
+              config={config}
+              now={now}
+              onChanged={(message) => {
+                setToast(message);
+                void load();
+              }}
+            />
+          ) : (
+          <>
           <SummaryCards
             weekCount={weekVisible.length}
             filtered={!!term || hiddenUnits.size > 0}
@@ -303,6 +353,8 @@ export function App({ me }: { me: MeResponse }) {
               onSelectDay={setSelectedDate}
             />
           </section>
+          </>
+          )}
         </main>
       </div>
 

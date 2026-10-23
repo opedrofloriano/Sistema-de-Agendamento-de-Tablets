@@ -29,8 +29,8 @@ test('/api/me devolve usuário, papel e regras da escola', async () => {
   assert.equal(me.body.user.name, 'Ana Ribeiro');
   assert.equal(me.body.user.role, 'professor');
   assert.deepEqual(me.body.config.units, [
+    { name: 'Castelo I', tablets: 30 },
     { name: 'Castelo II', tablets: 30 },
-    { name: 'Floresta', tablets: 30 },
   ]);
   assert.equal((await coord.get('/api/me')).body.user.role, 'coordenacao');
 });
@@ -64,12 +64,12 @@ test('cria reserva, lista na semana e nunca passa de 30 tablets', async () => {
   const later = await ana.get('/api/availability?unit=Castelo%20II&start=2026-10-21T09:30:00&end=2026-10-21T10:40:00');
   assert.equal(later.body.free, 15);
 
-  // O Castelo II está lotado, mas a Floresta tem os próprios 30 tablets.
-  const floresta = await ana.get('/api/availability?unit=Floresta&start=2026-10-21T08:45:00&end=2026-10-21T09:20:00');
-  assert.deepEqual(floresta.body, { unit: 'Floresta', free: 30, total: 30 });
+  // O Castelo II está lotado, mas a Castelo I tem os próprios 30 tablets.
+  const floresta = await ana.get('/api/availability?unit=Castelo I&start=2026-10-21T08:45:00&end=2026-10-21T09:20:00');
+  assert.deepEqual(floresta.body, { unit: 'Castelo I', free: 30, total: 30 });
   const fl = await bruno.post(
     '/api/reservations',
-    reservationBody({ unit: 'Floresta', quantity: 30, startTime: '08:40', endTime: '09:30' }),
+    reservationBody({ unit: 'Castelo I', quantity: 30, startTime: '08:40', endTime: '09:30' }),
   );
   assert.equal(fl.status, 201, JSON.stringify(fl.body));
   const unknown = await ana.get('/api/availability?unit=Outra&start=2026-10-21T08:45:00&end=2026-10-21T09:20:00');
@@ -98,7 +98,10 @@ test('só quem criou ou a coordenação cancelam', async () => {
   const again = await ana.post(`/api/reservations/${id}/cancel`);
   assert.equal(again.status, 409);
 
-  const audit = t.app.db.raw.prepare('SELECT action, user_name FROM audit_log WHERE reservation_id = ? ORDER BY id').all(id);
+  const audit = await t.app.db.all<{ action: string; user_name: string }>(
+    'SELECT action, user_name FROM audit_log WHERE reservation_id = ? ORDER BY id',
+    [id],
+  );
   assert.deepEqual(audit.map((a) => `${a.action}:${a.user_name}`), ['criar:Ana Ribeiro', 'cancelar:Carla Coordenação']);
 });
 

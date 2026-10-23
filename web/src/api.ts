@@ -1,6 +1,7 @@
 // Acesso à API do servidor. Todas as chamadas da interface passam por aqui.
 
-import type { ApiErrorBody, MeResponse, Reservation, ReservationInput } from '../../shared/types.ts';
+import type { PanelStats } from '../../shared/stats.ts';
+import type { AdminUser, ApiErrorBody, AuditEntry, MeResponse, Reservation, ReservationInput, SystemInfo } from '../../shared/types.ts';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -73,6 +74,17 @@ export const api = {
     (await request<{ reservation: Reservation }>(`/api/reservations/${encodeURIComponent(id)}/return`, {
       method: 'POST',
     })).reservation,
+
+  // Painel (coordenação e TI)
+  adminStats: (from: string, to: string, unit: string) =>
+    request<PanelStats>(`/api/admin/stats?from=${from}&to=${to}&unit=${encodeURIComponent(unit)}`),
+
+  pendingReturns: async () => (await request<{ reservations: Reservation[] }>('/api/admin/pending')).reservations,
+
+  // Área da TI
+  auditLog: async (limit = 40) => (await request<{ entries: AuditEntry[] }>(`/api/admin/ti/audit?limit=${limit}`)).entries,
+  adminUsers: async () => (await request<{ users: AdminUser[] }>('/api/admin/ti/users')).users,
+  systemInfo: () => request<SystemInfo>('/api/admin/ti/system'),
 
   logout: async () => {
     const { redirect } = await request<{ redirect: string }>('/auth/logout', { method: 'POST' });

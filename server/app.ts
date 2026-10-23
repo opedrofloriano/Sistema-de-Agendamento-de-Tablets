@@ -3,7 +3,7 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize, sep } from 'node:path';
-import type { MeResponse, User } from '../shared/types.ts';
+import type { MeResponse, SystemInfo, User } from '../shared/types.ts';
 import { Auth, sendHtml } from './auth.ts';
 import type { ServerConfig } from './config.ts';
 import { Database } from './db.ts';
@@ -61,8 +61,11 @@ export interface AppHandle {
   close(): Promise<void>;
 }
 
-export function createApp(cfg: ServerConfig, options: { fetchFn?: typeof fetch; now?: () => Date } = {}): AppHandle {
-  const db = new Database(cfg.dbPath);
+export async function createApp(
+  cfg: ServerConfig,
+  options: { fetchFn?: typeof fetch; now?: () => Date } = {},
+): Promise<AppHandle> {
+  const db = await Database.open({ path: cfg.dbPath, url: cfg.databaseUrl, authToken: cfg.databaseAuthToken, fetchFn: options.fetchFn });
   const auth = new Auth(cfg, db, options.fetchFn);
   const reservations = new ReservationService(db, cfg.app, options.now);
 
@@ -116,15 +119,15 @@ export function createApp(cfg: ServerConfig, options: { fetchFn?: typeof fetch; 
     }
     if (method === 'GET' && path === '/api/reservations') {
       const q = url.searchParams.get('q');
-      if (q !== null) return sendJson(res, 200, { reservations: reservations.search(q) });
-      const list = reservations.list(url.searchParams.get('from') ?? '', url.searchParams.get('to') ?? '');
+      if (q !== null) return sendJson(res, 200, { reservations: await reservations.search(q) });
+      const list = await reservations.list(url.searchParams.get('from') ?? '', url.searchParams.get('to') ?? '');
       return sendJson(res, 200, { reservations: list });
     }
     if (method === 'GET' && path === '/api/availability') {
       return sendJson(
         res,
         200,
-        reservations.availability(
+        await reservations.availability(
           url.searchParams.get('unit') ?? '',
           url.searchParams.get('start') ?? '',
           url.searchParams.get('end') ?? '',
@@ -132,13 +135,39 @@ export function createApp(cfg: ServerConfig, options: { fetchFn?: typeof fetch; 
       );
     }
     if (method === 'POST' && path === '/api/reservations') {
-      const created = reservations.create(user, await readJson(req));
+      const created = await reservations.create(user, await readJson(req));
       return sendJson(res, 201, { reservation: created });
+    }
+    if (method === 'GET' && path === '/api/admin/stats') {
+      const p = url.searchParams;
+      return sendJson(res, 200, await reservations.stats(user, p.get('from') ?? '', p.get('to') ?? '', p.get('unit') ?? ''));
+    }
+    if (method === 'GET' && path === '/api/admin/pending') {
+      return sendJson(res, 200, { reservations: await reservations.pendingReturns(user) });
+    }
+    if (method === 'GET' && path.startsWith('/api/admin/ti/')) {
+      if (user.role !== 'ti') throw new HttpError(403, 'Esta área é só para a TI.');
+      if (path === '/api/admin/ti/audit') {
+        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') ?? 100) || 100));
+        return sendJson(res, 200, { entries: await db.listAudit(limit) });
+      }
+      if (path === '/api/admin/ti/users') return sendJson(res, 200, { users: await db.listUsers() });
+      if (path === '/api/admin/ti/system') {
+        const info: SystemInfo = {
+          authMode: cfg.authMode,
+          database: db.kind,
+          nodeVersion: process.version,
+          uptimeSeconds: Math.round(process.uptime()),
+          timezone: cfg.app.timezone,
+          totals: await db.counts(),
+        };
+        return sendJson(res, 200, info);
+      }
     }
     const action = /^\/api\/reservations\/([\w-]{1,64})\/(cancel|return)$/.exec(path);
     if (method === 'POST' && action) {
       const [, id, verb] = action;
-      const updated = verb === 'cancel' ? reservations.cancel(user, id) : reservations.registerReturn(user, id);
+      const updated = verb === 'cancel' ? await reservations.cancel(user, id) : await reservations.registerReturn(user, id);
       return sendJson(res, 200, { reservation: updated });
     }
     throw new HttpError(404, 'Rota não encontrada.');
@@ -152,26 +181,30 @@ export function createApp(cfg: ServerConfig, options: { fetchFn?: typeof fetch; 
     try {
       if (url.pathname === '/healthz') return sendJson(res, 200, { ok: true });
 
-      if (url.pathname === '/auth/login' && method === 'GET') return auth.login(url, res);
+      if (url.pathname === '/auth/login' && method === 'GET') return await auth.login(url, res);
       if (url.pathname === '/auth/callback' && method === 'GET') return await auth.callback(url, res);
+      if (url.pathname === '/auth/pilot-login' && method === 'POST') {
+        const form = new URLSearchParams(await readBody(req));
+        return await auth.pilotLogin(form, req, res);
+      }
       if (url.pathname === '/auth/dev-login' && method === 'POST') {
         const form = new URLSearchParams(await readBody(req));
-        return auth.devLogin(form, res);
+        return await auth.devLogin(form, res);
       }
       if (url.pathname === '/auth/logout' && method === 'POST') {
         if (req.headers['x-requested-with'] !== 'agendamento') throw new HttpError(403, 'Requisição recusada.');
-        return sendJson(res, 200, auth.logout(req, res));
+        return sendJson(res, 200, await auth.logout(req, res));
       }
 
       if (url.pathname.startsWith('/api/')) {
-        const user = auth.currentUser(req);
+        const user = await auth.currentUser(req);
         if (!user) return sendJson(res, 401, { error: 'Sua sessão terminou. Entre de novo.' });
         return await api(req, res, url, user);
       }
 
       if (method !== 'GET' && method !== 'HEAD') throw new HttpError(405, 'Método não permitido.');
       // A interface só abre para quem está logado.
-      if (!auth.currentUser(req) && !/\.(js|css|svg|png|ico|map)$/.test(url.pathname)) {
+      if (!(await auth.currentUser(req)) && !/\.(js|css|svg|png|ico|map)$/.test(url.pathname)) {
         res.writeHead(302, { Location: `/auth/login?returnTo=${encodeURIComponent(url.pathname + url.search)}` });
         res.end();
         return;
@@ -198,8 +231,7 @@ export function createApp(cfg: ServerConfig, options: { fetchFn?: typeof fetch; 
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => {
-          db.close();
-          resolve();
+          void db.close().then(resolve);
         });
         server.closeAllConnections();
       }),

@@ -62,7 +62,7 @@ export function ReservationDetails({ reservation: r, now, canManage, onClose, on
         <dd>
           {formatTime(start)} – {formatTime(end)}
         </dd>
-        <dt>Turma</dt>
+        <dt>Turma / sala</dt>
         <dd>{r.className || 'Não informada'}</dd>
         <dt>Quantidade</dt>
         <dd>

@@ -3,21 +3,21 @@
 
 import { StrictMode, useEffect, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { MeResponse } from '../../../shared/types.ts';
+import type { MeResponse, UserRole } from '../../../shared/types.ts';
 import { App } from '../App.tsx';
 import { CalendarIcon } from '../icons.tsx';
 import '../styles.css';
-import { api, demoLogin, demoReset, demoUser } from './api.demo.ts';
+import { api, demoLogin, demoReset, demoUser, storagePersists } from './api.demo.ts';
 
 function DemoLogin({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('');
-  const [coord, setCoord] = useState(false);
+  const [role, setRole] = useState<UserRole>('professor');
   const [reset, setReset] = useState(false);
 
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
-    demoLogin(name, coord);
+    demoLogin(name, role);
     onDone();
   }
 
@@ -32,13 +32,23 @@ function DemoLogin({ onDone }: { onDone: () => void }) {
           Versão de demonstração. As reservas ficam salvas só neste navegador. No sistema real, o acesso é pela conta
           Microsoft da escola.
         </p>
+        {!storagePersists && (
+          <p className="demo-login-note demo-login-warn" role="note">
+            Este visualizador não guarda dados. Dá para usar normalmente, mas as reservas somem ao fechar.
+            Para guardar, abra o arquivo no Chrome, Edge ou Safari.
+          </p>
+        )}
         <label htmlFor="demo-name">
           Seu nome
           <input id="demo-name" value={name} maxLength={80} required autoFocus onChange={(e) => setName(e.target.value)} placeholder="Ex.: Ana Ribeiro" />
         </label>
-        <label className="demo-check" htmlFor="demo-coord">
-          <input id="demo-coord" type="checkbox" checked={coord} onChange={(e) => setCoord(e.target.checked)} />
-          Sou da coordenação
+        <label htmlFor="demo-role">
+          Entrar como
+          <select id="demo-role" value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
+            <option value="professor">Professor(a)</option>
+            <option value="coordenacao">Coordenação (vê o Painel)</option>
+            <option value="ti">TI (Painel + área técnica)</option>
+          </select>
         </label>
         <button type="submit" className="primary-button" disabled={!name.trim()}>
           Entrar
@@ -66,6 +76,16 @@ function Root() {
     if (needsLogin) return;
     void api.me().then(setMe, () => setNeedsLogin(true));
   }, [needsLogin]);
+
+  // Sem armazenamento, "Sair" volta para a entrada sem recarregar (recarregar perderia tudo).
+  useEffect(() => {
+    const onLogout = () => {
+      setMe(null);
+      setNeedsLogin(true);
+    };
+    window.addEventListener('demo-logout', onLogout);
+    return () => window.removeEventListener('demo-logout', onLogout);
+  }, []);
 
   if (needsLogin) return <DemoLogin onDone={() => setNeedsLogin(false)} />;
   if (!me) {

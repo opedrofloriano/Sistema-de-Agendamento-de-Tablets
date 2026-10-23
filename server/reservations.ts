@@ -6,12 +6,14 @@ import {
   canRegisterReturn,
   displayStatus,
   freeTablets,
+  isStaff,
   isValidDate,
   parseLocal,
   tabletsFor,
   toLocalIso,
   validateReservation,
 } from '../shared/rules.ts';
+import { computeStats, type PanelStats } from '../shared/stats.ts';
 import type { AppConfig, Reservation, ReservationInput, User } from '../shared/types.ts';
 import type { Database } from './db.ts';
 
@@ -29,7 +31,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Pode cancelar ou registrar devolução: quem criou a reserva ou a coordenação. */
 export const canManage = (user: User, r: Pick<Reservation, 'ownerId'>): boolean =>
-  user.role === 'coordenacao' || r.ownerId === user.id;
+  isStaff(user.role) || r.ownerId === user.id;
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
@@ -61,7 +63,7 @@ export class ReservationService {
   }
 
   /** Reservas que começam entre as datas `from` e `to` (AAAA-MM-DD, ambas inclusive). */
-  list(from: string, to: string): Reservation[] {
+  async list(from: string, to: string): Promise<Reservation[]> {
     if (!DATE.test(from) || !DATE.test(to)) throw new HttpError(400, 'Informe "from" e "to" no formato AAAA-MM-DD.');
     const end = parseLocal(`${to}T00:00`);
     if (!isValidDate(end) || !isValidDate(parseLocal(`${from}T00:00`))) throw new HttpError(400, 'Datas inválidas.');
@@ -69,32 +71,50 @@ export class ReservationService {
     return this.db.listReservations(`${from}T00:00:00`, toLocalIso(end));
   }
 
-  search(term: string): Reservation[] {
+  /** Estatísticas do painel (coordenação e TI). Período de no máximo 1 ano. */
+  async stats(user: User, from: string, to: string, unit: string): Promise<PanelStats> {
+    if (!isStaff(user.role)) throw new HttpError(403, 'O painel é só para a coordenação e a TI.');
+    if (unit && tabletsFor(this.config, unit) === 0) throw new HttpError(400, 'Unidade desconhecida.', 'unit');
+    const list = await this.list(from, to);
+    const span = (parseLocal(`${to}T00:00`).getTime() - parseLocal(`${from}T00:00`).getTime()) / 86_400_000;
+    if (span < 0 || span > 366) throw new HttpError(400, 'Escolha um período de até um ano.');
+    return computeStats(list, from, to, this.config, unit || undefined);
+  }
+
+  /** Reservas que já terminaram e ainda não tiveram a devolução registrada (últimos 60 dias). */
+  async pendingReturns(user: User): Promise<Reservation[]> {
+    if (!isStaff(user.role)) throw new HttpError(403, 'Só a coordenação e a TI veem as pendências.');
+    const now = this.now();
+    const since = new Date(now.getTime() - 60 * 86_400_000);
+    return this.db.listPendingReturns(toLocalIso(now), toLocalIso(since));
+  }
+
+  async search(term: string): Promise<Reservation[]> {
     const q = term.trim();
     if (q.length < 2) return [];
     return this.db.searchReservations(q.slice(0, 80));
   }
 
   /** Quantos tablets da unidade estão livres durante todo o intervalo. */
-  availability(unit: string, start: string, end: string): { unit: string; free: number; total: number } {
+  async availability(unit: string, start: string, end: string): Promise<{ unit: string; free: number; total: number }> {
     const total = tabletsFor(this.config, unit);
     if (total === 0) throw new HttpError(400, 'Unidade desconhecida.', 'unit');
     const s = parseLocal(start);
     const e = parseLocal(end);
     if (!isValidDate(s) || !isValidDate(e) || e <= s) throw new HttpError(400, 'Intervalo inválido.');
-    const overlapping = this.db.listOverlapping(unit, toLocalIso(s), toLocalIso(e));
+    const overlapping = await this.db.listOverlapping(unit, toLocalIso(s), toLocalIso(e));
     return { unit, free: freeTablets(overlapping, unit, s, e, this.config), total };
   }
 
-  create(user: User, body: unknown): Reservation {
+  async create(user: User, body: unknown): Promise<Reservation> {
     const input = parseInput(body);
     // Professores sempre reservam no próprio nome; a coordenação pode reservar para outra pessoa.
-    if (user.role !== 'coordenacao' || !input.teacher.trim()) input.teacher = user.name;
+    if (!isStaff(user.role) || !input.teacher.trim()) input.teacher = user.name;
 
-    return this.db.transaction(() => {
+    return this.db.transaction(async (tx) => {
       const dayStart = `${input.date}T00:00:00`;
       const dayEnd = `${input.date}T23:59:59`;
-      const existing = DATE.test(input.date) ? this.db.listOverlapping(input.unit, dayStart, dayEnd) : [];
+      const existing = DATE.test(input.date) ? await tx.listOverlapping(input.unit, dayStart, dayEnd) : [];
       const now = this.now();
       const result = validateReservation(input, existing, now, this.config);
       if (!result.ok) throw new HttpError(result.conflict ? 409 : 422, result.error, result.field);
@@ -113,8 +133,8 @@ export class ReservationService {
         notes: input.notes.trim(),
         createdAt: toLocalIso(now),
       };
-      this.db.insertReservation(reservation);
-      this.db.audit(user, 'criar', reservation.id, {
+      await tx.insertReservation(reservation);
+      await tx.audit(user, 'criar', reservation.id, {
         quantity: reservation.quantity,
         start: reservation.start,
         end: reservation.end,
@@ -124,33 +144,33 @@ export class ReservationService {
     });
   }
 
-  cancel(user: User, id: string): Reservation {
-    return this.db.transaction(() => {
-      const r = this.db.getReservation(id);
+  async cancel(user: User, id: string): Promise<Reservation> {
+    return this.db.transaction(async (tx) => {
+      const r = await tx.getReservation(id);
       if (!r) throw new HttpError(404, 'Reserva não encontrada. Ela pode ter sido removida.');
       if (!canManage(user, r))
         throw new HttpError(403, `Só ${r.teacher} ou a coordenação podem cancelar esta reserva.`);
       if (!canBeCancelled(displayStatus(r, this.now())))
         throw new HttpError(409, 'Só é possível cancelar reservas agendadas ou em andamento.');
       const at = toLocalIso(this.now());
-      this.db.markCancelled(id, user.id, at);
-      this.db.audit(user, 'cancelar', id);
-      return { ...r, status: 'cancelada' };
+      await tx.markCancelled(id, user.id, at);
+      await tx.audit(user, 'cancelar', id);
+      return { ...r, status: 'cancelada' as const };
     });
   }
 
-  registerReturn(user: User, id: string): Reservation {
-    return this.db.transaction(() => {
-      const r = this.db.getReservation(id);
+  async registerReturn(user: User, id: string): Promise<Reservation> {
+    return this.db.transaction(async (tx) => {
+      const r = await tx.getReservation(id);
       if (!r) throw new HttpError(404, 'Reserva não encontrada. Ela pode ter sido removida.');
       if (!canManage(user, r))
         throw new HttpError(403, `Só ${r.teacher} ou a coordenação podem registrar a devolução.`);
       if (!canRegisterReturn(displayStatus(r, this.now())))
         throw new HttpError(409, 'A devolução só pode ser registrada depois do início da reserva.');
       const at = toLocalIso(this.now());
-      this.db.markReturned(id, user.id, at);
-      this.db.audit(user, 'devolver', id);
-      return { ...r, status: 'devolvida' };
+      await tx.markReturned(id, user.id, at);
+      await tx.audit(user, 'devolver', id);
+      return { ...r, status: 'devolvida' as const };
     });
   }
 }

@@ -1,0 +1,32 @@
+# Publicação gratuita na Render (render.com): New → Blueprint → escolher este repositório.
+# As reservas ficam num banco gratuito da Turso (turso.tech), porque o plano grátis da Render
+# apaga os arquivos do servidor a cada reinício. Na criação, a Render pergunta 5 valores:
+#   ACCESS_CODE           código que todos digitam para entrar (mínimo 6 caracteres)
+#   COORDINATOR_PASSWORD  senha da coordenação (mínimo 8, diferente do código)
+#   TI_PASSWORD           senha da TI (mínimo 8, diferente das outras duas)
+#   DATABASE_URL          endereço do banco na Turso (começa com libsql://)
+#   DATABASE_AUTH_TOKEN   token do banco na Turso
+services:
+  - type: web
+    name: agendamento-tablets
+    runtime: node
+    plan: free
+    region: virginia        # costa leste dos EUA, a mais próxima do Brasil
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_MODE
+        value: piloto
+      - key: ACCESS_CODE
+        sync: false
+      - key: COORDINATOR_PASSWORD
+        sync: false
+      - key: TI_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_AUTH_TOKEN
+        sync: false

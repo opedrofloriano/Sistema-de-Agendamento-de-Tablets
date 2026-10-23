@@ -155,7 +155,7 @@ test('state reutilizado ou inventado é recusado', async () => {
 test('returnTo externo é ignorado (sem redirecionamento aberto)', async () => {
   const start = await fetch(`${t.base}/auth/login?returnTo=https%3A%2F%2Fmal.example`, { redirect: 'manual' });
   const state = new URL(start.headers.get('location') ?? '').searchParams.get('state') ?? '';
-  const row = t.app.db.raw.prepare('SELECT return_to FROM login_states WHERE state = ?').get(state) as { return_to: string };
+  const [row] = await t.app.db.all<{ return_to: string }>('SELECT return_to FROM login_states WHERE state = ?', [state]);
   assert.equal(row.return_to, '/');
 });
 

@@ -9,6 +9,7 @@ import {
   canRegisterReturn,
   displayStatus,
   freeTablets,
+  isStaff,
   isValidDate,
   nextWeekday,
   parseLocal,
@@ -18,7 +19,8 @@ import {
   toLocalIso,
   validateReservation,
 } from '../../../shared/rules.ts';
-import type { MeResponse, Reservation, ReservationInput, User } from '../../../shared/types.ts';
+import { computeStats, type PanelStats } from '../../../shared/stats.ts';
+import type { AdminUser, AuditEntry, MeResponse, Reservation, ReservationInput, SystemInfo, User, UserRole } from '../../../shared/types.ts';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -33,22 +35,61 @@ export class ApiError extends Error {
 
 const RES_KEY = 'tablets:demo:reservations';
 const USER_KEY = 'tablets:demo:user';
+const AUDIT_KEY = 'tablets:demo:audit';
+const STARTED = Date.now();
 const config = DEFAULT_CONFIG;
 const wait = () => new Promise((r) => setTimeout(r, 120));
 
-function read<T>(key: string): T | null {
+// Alguns visualizadores (pré-visualização do WhatsApp, do e-mail ou do gerenciador de arquivos do
+// celular) bloqueiam o armazenamento do navegador. Nesse caso, tudo fica numa cópia em memória:
+// a demonstração funciona, mas os dados somem ao fechar a página.
+const memory = new Map<string, string>();
+
+function canPersist(): boolean {
   try {
-    const raw = localStorage.getItem(key);
+    const k = 'tablets:demo:probe';
+    localStorage.setItem(k, '1');
+    const ok = localStorage.getItem(k) === '1';
+    localStorage.removeItem(k);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+/** false quando este navegador não guarda os dados entre uma visita e outra. */
+export const storagePersists = canPersist();
+
+function read<T>(key: string): T | null {
+  let raw: string | null = memory.get(key) ?? null;
+  if (storagePersists) {
+    try {
+      raw = localStorage.getItem(key) ?? raw;
+    } catch {
+      /* usa a memória */
+    }
+  }
+  try {
     return raw ? (JSON.parse(raw) as T) : null;
   } catch {
     return null;
   }
 }
 function write(key: string, value: unknown): void {
+  const raw = JSON.stringify(value);
+  memory.set(key, raw);
+  if (!storagePersists) return;
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(key, raw);
   } catch {
-    /* sem armazenamento: os dados valem só até recarregar */
+    /* fica só na memória */
+  }
+}
+function remove(key: string): void {
+  memory.delete(key);
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* nada a apagar */
   }
 }
 
@@ -75,19 +116,51 @@ function seed(): Reservation[] {
     notes: 'Dados fictícios para demonstração.',
     createdAt: created,
   });
+  // Histórico das últimas semanas, para o Painel ter o que mostrar.
+  const past: Reservation[] = [];
+  const people = ['Camila Souza', 'Mariana Costa', 'Rafael Almeida', 'Bruno Lima', 'Ana Ribeiro', 'Paulo Mendes', 'Juliana Prado'];
+  const groups = ['8º ano A', '9º ano B', 'Ensino Médio', '5º ano A', '6º ano B', '7º ano A', 'Laboratório'];
+  const acts = ['Pesquisa orientada', 'Quiz de revisão', 'Leitura digital', 'Jogos de Matemática', 'Produção de vídeo'];
+  let s = 11;
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const today = startOfDay(new Date());
+  for (let off = 70; off >= 1; off -= 1) {
+    const d = addDays(today, -off);
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+    const per = config.periods.filter(() => rnd() < 0.3).slice(0, 4);
+    per.forEach((p, i) => {
+      const who = people[Math.min(people.length - 1, Math.floor(rnd() * rnd() * people.length * 1.6))];
+      past.push({
+        id: `hist-${off}-${i}`,
+        title: acts[Math.floor(rnd() * acts.length)],
+        teacher: who,
+        ownerId: `demo:${who}`,
+        unit: rnd() < 0.55 ? 'Castelo II' : 'Castelo I',
+        className: groups[Math.min(groups.length - 1, Math.floor(rnd() * rnd() * groups.length * 1.5))],
+        quantity: [8, 10, 12, 15, 20, 25][Math.floor(rnd() * 6)],
+        start: `${toDateKey(d)}T${p.start}:00`,
+        end: `${toDateKey(d)}T${p.end}:00`,
+        status: off <= 2 && rnd() < 0.5 ? 'confirmada' : rnd() < 0.07 ? 'cancelada' : 'devolvida',
+        notes: 'Dados fictícios para demonstração.',
+        createdAt: created,
+      });
+    });
+  }
   return [
-    r('demo-1', 'Pesquisa orientada', 'Rafael Almeida', 'Floresta', '9º ano B', 15, 0, '07:50', '09:30'),
+    ...past,
+    r('demo-1', 'Pesquisa orientada', 'Rafael Almeida', 'Castelo I', '9º ano B', 15, 0, '07:50', '09:30'),
     r('demo-2', 'Atividade de Ciências', 'Mariana Costa', 'Castelo II', '8º ano A', 15, 0, '08:40', '10:40'),
     r('demo-3', 'Projeto de Robótica', 'Camila Souza', 'Castelo II', 'Ensino Médio', 15, 0, '08:40', '09:30'),
     r('demo-4', 'Leitura digital', 'Camila Souza', 'Castelo II', '5º ano A', 20, 1, '13:00', '14:40'),
-    r('demo-5', 'Mapas interativos', 'Ana Ribeiro', 'Floresta', '6º ano B', 18, 1, '14:40', '15:30'),
-    r('demo-6', 'Jogos de Matemática', 'Bruno Lima', 'Floresta', '7º ano A', 10, 2, '10:40', '11:30'),
+    r('demo-5', 'Mapas interativos', 'Ana Ribeiro', 'Castelo I', '6º ano B', 18, 1, '14:40', '15:30'),
+    r('demo-6', 'Jogos de Matemática', 'Bruno Lima', 'Castelo I', '7º ano A', 10, 2, '10:40', '11:30'),
   ];
 }
 
 function load(): Reservation[] {
   const saved = read<Reservation[]>(RES_KEY);
-  if (Array.isArray(saved)) return saved;
+  // Dados salvos antes da troca de nome da unidade (Floresta → Castelo I).
+  if (Array.isArray(saved)) return saved.map((r) => (r.unit === 'Floresta' ? { ...r, unit: 'Castelo I' } : r));
   const fresh = seed();
   write(RES_KEY, fresh);
   return fresh;
@@ -96,22 +169,39 @@ const save = (list: Reservation[]) => write(RES_KEY, list);
 
 export const demoUser = (): User | null => read<User>(USER_KEY);
 
-export function demoLogin(name: string, coordinator: boolean): void {
+export function demoLogin(name: string, role: UserRole): void {
   const clean = name.trim().slice(0, 80);
-  write(USER_KEY, {
-    id: `demo:${clean}`,
-    name: clean,
-    email: '',
-    role: coordinator ? 'coordenacao' : 'professor',
-  } satisfies User);
+  write(USER_KEY, { id: `demo:${clean}`, name: clean, email: '', role } satisfies User);
+}
+
+function log(user: User, action: string, r: Reservation, details: object = {}): void {
+  const list = read<AuditEntry[]>(AUDIT_KEY) ?? [];
+  list.unshift({
+    id: (list[0]?.id ?? 0) + 1,
+    at: toLocalIso(new Date()),
+    userName: user.name,
+    action,
+    reservationId: r.id,
+    reservationTitle: r.title,
+    details: JSON.stringify(details),
+  });
+  write(AUDIT_KEY, list.slice(0, 200));
+}
+
+function requireStaff(): User {
+  const u = requireUser();
+  if (!isStaff(u.role)) throw new ApiError(403, 'O painel é só para a coordenação e a TI.');
+  return u;
+}
+function requireTi(): User {
+  const u = requireUser();
+  if (u.role !== 'ti') throw new ApiError(403, 'Esta área é só para a TI.');
+  return u;
 }
 
 export function demoReset(): void {
-  try {
-    localStorage.removeItem(RES_KEY);
-  } catch {
-    /* nada a apagar */
-  }
+  remove(RES_KEY);
+  remove(AUDIT_KEY);
 }
 
 function requireUser(): User {
@@ -120,7 +210,7 @@ function requireUser(): User {
   return u;
 }
 
-const canManage = (u: User, r: Reservation) => u.role === 'coordenacao' || r.ownerId === u.id;
+const canManage = (u: User, r: Reservation) => isStaff(u.role) || r.ownerId === u.id;
 
 export const api = {
   async me(): Promise<MeResponse> {
@@ -154,7 +244,7 @@ export const api = {
   async createReservation(input: ReservationInput): Promise<Reservation> {
     await wait();
     const user = requireUser();
-    const data = { ...input, teacher: user.role === 'coordenacao' && input.teacher.trim() ? input.teacher : user.name };
+    const data = { ...input, teacher: isStaff(user.role) && input.teacher.trim() ? input.teacher : user.name };
     const list = load();
     const now = new Date();
     const result = validateReservation(data, list, now, config);
@@ -174,6 +264,7 @@ export const api = {
       createdAt: toLocalIso(now),
     };
     save([...list, created]);
+    log(user, 'criar', created, { quantity: created.quantity, start: created.start, end: created.end, teacher: created.teacher });
     return created;
   },
 
@@ -188,6 +279,7 @@ export const api = {
       throw new ApiError(409, 'Só é possível cancelar reservas agendadas ou em andamento.');
     const updated: Reservation = { ...r, status: 'cancelada' };
     save(list.map((x) => (x.id === id ? updated : x)));
+    log(user, 'cancelar', updated);
     return updated;
   },
 
@@ -202,16 +294,65 @@ export const api = {
       throw new ApiError(409, 'A devolução só pode ser registrada depois do início da reserva.');
     const updated: Reservation = { ...r, status: 'devolvida' };
     save(list.map((x) => (x.id === id ? updated : x)));
+    log(user, 'devolver', updated);
     return updated;
   },
 
+  async adminStats(from: string, to: string, unit: string): Promise<PanelStats> {
+    await wait();
+    requireStaff();
+    const end = toLocalIso(addDays(parseLocal(`${to}T00:00`), 1));
+    const list = load().filter((r) => r.start >= `${from}T00:00:00` && r.start < end);
+    return computeStats(list, from, to, config, unit || undefined);
+  },
+
+  async pendingReturns(): Promise<Reservation[]> {
+    await wait();
+    requireStaff();
+    const now = toLocalIso(new Date());
+    const since = toLocalIso(addDays(new Date(), -60));
+    return load()
+      .filter((r) => r.status === 'confirmada' && r.end <= now && r.end >= since)
+      .sort((a, b) => b.start.localeCompare(a.start));
+  },
+
+  async auditLog(limit = 40): Promise<AuditEntry[]> {
+    await wait();
+    requireTi();
+    return (read<AuditEntry[]>(AUDIT_KEY) ?? []).slice(0, limit);
+  },
+
+  async adminUsers(): Promise<AdminUser[]> {
+    await wait();
+    const me = requireTi();
+    const counts = new Map<string, number>();
+    for (const r of load()) counts.set(r.ownerId, (counts.get(r.ownerId) ?? 0) + 1);
+    const names = new Map<string, string>(load().map((r) => [r.ownerId, r.teacher]));
+    names.set(me.id, me.name);
+    const at = toLocalIso(new Date());
+    return [...names.entries()].map(([id, name]) => ({
+      id, name, email: '', role: id === me.id ? me.role : 'professor', updatedAt: at, reservations: counts.get(id) ?? 0,
+    }));
+  },
+
+  async systemInfo(): Promise<SystemInfo> {
+    await wait();
+    requireTi();
+    const list = load();
+    return {
+      authMode: 'demo',
+      database: 'navegador',
+      nodeVersion: '—',
+      uptimeSeconds: Math.round((Date.now() - STARTED) / 1000),
+      timezone: config.timezone,
+      totals: { reservations: list.length, users: new Set(list.map((r) => r.ownerId)).size, activeSessions: 1 },
+    };
+  },
+
   async logout(): Promise<void> {
-    try {
-      localStorage.removeItem(USER_KEY);
-    } catch {
-      /* nada a apagar */
-    }
-    window.location.reload();
+    remove(USER_KEY);
+    if (storagePersists) window.location.reload();
+    else window.dispatchEvent(new Event('demo-logout'));
   },
 };
 

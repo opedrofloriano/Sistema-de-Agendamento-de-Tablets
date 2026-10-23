@@ -23,7 +23,7 @@ export async function startApp(
     { AUTH_MODE: 'dev', NODE_ENV: 'test', DATABASE_PATH: join(dir, 'test.db'), PUBLIC_DIR: join(dir, 'public'), ...env },
     process.cwd(),
   );
-  const app = createApp(cfg, options);
+  const app = await createApp(cfg, options);
   await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const { port } = app.server.address() as AddressInfo;
   const base = `http://127.0.0.1:${port}`;

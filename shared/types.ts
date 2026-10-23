@@ -72,7 +72,8 @@ export interface AppConfig {
   limits: TextLimits;
 }
 
-export type UserRole = 'professor' | 'coordenacao';
+/** professor: reserva e cancela as próprias; coordenacao: gerencia todas e vê o painel; ti: tudo da coordenação + registro de atividades, usuários e sistema. */
+export type UserRole = 'professor' | 'coordenacao' | 'ti';
 
 export interface User {
   id: string;
@@ -84,11 +85,45 @@ export interface User {
 export interface MeResponse {
   user: User;
   config: AppConfig;
-  /** entra: login Microsoft; dev: login de teste no servidor; demo: arquivo HTML sem servidor. */
-  authMode: 'entra' | 'dev' | 'demo';
+  /**
+   * entra: login Microsoft; piloto: nome + código de acesso (coordenação com senha);
+   * dev: login de teste no servidor; demo: arquivo HTML sem servidor.
+   */
+  authMode: 'entra' | 'piloto' | 'dev' | 'demo';
 }
 
 export interface ApiErrorBody {
   error: string;
   field?: string;
+}
+
+/** Linha do registro de atividades (só TI). */
+export interface AuditEntry {
+  id: number;
+  at: string;
+  userName: string;
+  action: string;
+  reservationId: string | null;
+  reservationTitle: string | null;
+  details: string;
+}
+
+/** Pessoa que já entrou no sistema (só TI). */
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  updatedAt: string;
+  reservations: number;
+}
+
+/** Situação do sistema (só TI). */
+export interface SystemInfo {
+  authMode: MeResponse['authMode'];
+  database: 'local' | 'turso' | 'navegador';
+  nodeVersion: string;
+  uptimeSeconds: number;
+  timezone: string;
+  totals: { reservations: number; users: number; activeSessions: number };
 }

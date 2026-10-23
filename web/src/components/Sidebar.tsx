@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { addDays, isWeekend, sameDay, startOfWeek, toDateKey } from '../../../shared/rules.ts';
+import { ROLE_LABEL, addDays, isStaff, isWeekend, sameDay, startOfWeek, toDateKey } from '../../../shared/rules.ts';
 import type { Unit, User } from '../../../shared/types.ts';
 import { ChevronLeftIcon, ChevronRightIcon, LogOutIcon } from '../icons.tsx';
 
@@ -117,12 +117,12 @@ export function Sidebar(props: SidebarProps) {
           </span>
           <span className="user-info">
             <strong>{props.user.name}</strong>
-            <span>{props.user.role === 'coordenacao' ? 'Coordenação' : 'Professor(a)'}</span>
+            <span>{ROLE_LABEL[props.user.role]}</span>
           </span>
         </div>
         <p className="profile-hint">
-          {props.user.role === 'coordenacao'
-            ? 'Você pode cancelar qualquer reserva e reservar em nome de outros professores.'
+          {isStaff(props.user.role)
+            ? `Você pode cancelar qualquer reserva, reservar em nome de outros professores e ver o Painel${props.user.role === 'ti' ? ', incluindo a área técnica' : ''}.`
             : 'Você pode cancelar só as reservas feitas por você.'}
         </p>
         <button type="button" className="logout-button" onClick={props.onLogout}>
@@ -134,7 +134,7 @@ export function Sidebar(props: SidebarProps) {
         <h2>Como funciona</h2>
         <p>
           Clique em um horário livre da agenda para reservar. Cada unidade tem os próprios tablets (
-          {props.units.map((u) => `${u.tablets} na ${u.name}`).join(', ')}); a reserva de uma não ocupa os da outra.
+          {props.units.map((u) => `${u.tablets} no ${u.name}`).join(', ')}); a reserva de uma não ocupa os da outra.
         </p>
       </section>
     </aside>

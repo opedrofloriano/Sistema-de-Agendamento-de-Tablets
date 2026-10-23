@@ -17,10 +17,12 @@ try {
 process.env.TZ = cfg.app.timezone;
 
 const { createApp } = await import('./app.ts');
-const app = createApp(cfg);
+const app = await createApp(cfg);
 
 app.server.listen(cfg.port, cfg.host, () => {
-  console.log(`Agendamento de Tablets em ${cfg.baseUrl} (porta ${cfg.port}, login: ${cfg.authMode}).`);
+  console.log(
+    `Agendamento de Tablets em ${cfg.baseUrl} (porta ${cfg.port}, login: ${cfg.authMode}, banco: ${app.db.kind === 'turso' ? 'Turso' : 'arquivo local'}).`,
+  );
   if (cfg.authMode === 'dev') console.warn('ATENÇÃO: login de desenvolvimento ativo. Não use em produção.');
 });
 

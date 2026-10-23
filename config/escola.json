@@ -1,7 +1,7 @@
 {
   "units": [
-    { "name": "Castelo II", "tablets": 30 },
-    { "name": "Floresta", "tablets": 30 }
+    { "name": "Castelo I", "tablets": 30 },
+    { "name": "Castelo II", "tablets": 30 }
   ],
   "dayStartMinutes": 420,
   "dayEndMinutes": 1100,

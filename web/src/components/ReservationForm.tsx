@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { combine, formatLongDate, isValidDate, tabletsFor, toDateKey, toLocalIso } from '../../../shared/rules.ts';
+import { combine, isStaff, formatLongDate, isValidDate, tabletsFor, toDateKey, toLocalIso } from '../../../shared/rules.ts';
 import type { AppConfig, ReservationInput, User } from '../../../shared/types.ts';
 import { ApiError, api } from '../api.ts';
 import { useDebounced } from '../hooks.ts';
@@ -25,7 +25,7 @@ type Availability =
 
 export function ReservationForm(props: ReservationFormProps) {
   const { config, user } = props;
-  const isCoordinator = user.role === 'coordenacao';
+  const isCoordinator = isStaff(user.role);
   const uid = useId();
   const id = (name: string) => `${uid}-${name}`;
   const formRef = useRef<HTMLFormElement>(null);
@@ -109,9 +109,9 @@ export function ReservationForm(props: ReservationFormProps) {
   }
 
   return (
-    <Modal labelledBy={`${uid}-title`} className="reservation-modal" onClose={props.onClose}>
+    <Modal labelledBy={`${uid}-heading`} className="reservation-modal" onClose={props.onClose}>
       <header className="modal-header">
-        <h2 id={`${uid}-title`}>Nova reserva</h2>
+        <h2 id={`${uid}-heading`}>Nova reserva</h2>
         <button type="button" className="icon-button" onClick={props.onClose} aria-label="Fechar">
           <CloseIcon size={20} />
         </button>
@@ -163,7 +163,7 @@ export function ReservationForm(props: ReservationFormProps) {
         <div className="form-row">
           <label htmlFor={id('className')}>
             <span>
-              Turma <span className="optional">(opcional)</span>
+              Turma / sala <span className="optional">(opcional)</span>
             </span>
             <input
               id={id('className')}

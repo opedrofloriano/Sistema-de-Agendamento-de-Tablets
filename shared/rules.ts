@@ -32,8 +32,8 @@ export const DEFAULT_PERIODS: ClassPeriod[] = [
 
 export const DEFAULT_CONFIG: AppConfig = {
   units: [
+    { name: 'Castelo I', tablets: 30 },
     { name: 'Castelo II', tablets: 30 },
-    { name: 'Floresta', tablets: 30 },
   ],
   periods: DEFAULT_PERIODS,
   dayStartMinutes: 7 * 60,
@@ -165,6 +165,11 @@ export function displayStatus(r: Pick<Reservation, 'status' | 'start' | 'end'>, 
   if (now < end) return 'em-andamento';
   return 'aguardando-devolucao';
 }
+
+/** Coordenação e TI: gerenciam qualquer reserva e veem o painel. */
+export const isStaff = (role: string): boolean => role === 'coordenacao' || role === 'ti';
+
+export const ROLE_LABEL: Record<string, string> = { professor: 'Professor(a)', coordenacao: 'Coordenação', ti: 'TI' };
 
 export const canBeCancelled = (s: DisplayStatus): boolean => s === 'agendada' || s === 'em-andamento';
 export const canRegisterReturn = (s: DisplayStatus): boolean =>
