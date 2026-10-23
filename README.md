@@ -52,38 +52,7 @@ Gera `dist/agendamento-tablets-demo.html`, que abre direto no navegador, sem ser
 telas e regras; só a camada de dados é trocada (`web/src/demo/api.demo.ts`): as reservas ficam no
 navegador de quem abre e o login é simulado. Serve para apresentar o sistema, não para uso real.
 
-## Publicar por fora, de graça (Render + Turso, modo piloto)
 
-Para testar com professores antes da versão oficial, sem o login Microsoft e sem custo.
-Cada pessoa entra com o **nome** e um **código de acesso** que a escola passa; a coordenação entra
-com uma **senha** própria, e a TI com outra (opcional). O código e as senhas ficam só no servidor
-(`ACCESS_CODE`, `COORDINATOR_PASSWORD` e `TI_PASSWORD`). Na tela de entrada há um único campo
-"Sou da coordenação ou da TI": a senha digitada define o papel. Depois de 10 tentativas erradas, o mesmo endereço de internet fica
-bloqueado por 15 minutos.
-
-O servidor roda no plano grátis da [Render](https://render.com). Como esse plano apaga os arquivos
-a cada reinício, as reservas ficam num banco SQLite gratuito na [Turso](https://turso.tech)
-(variáveis `DATABASE_URL` e `DATABASE_AUTH_TOKEN`; sem elas, o sistema usa o arquivo local).
-
-1. **Turso:** crie a conta, crie um banco (região mais próxima: AWS US East / Virginia), copie o
-   endereço `libsql://…` e gere um token do banco.
-2. **Render:** crie a conta entrando com o GitHub, use **New → Blueprint** e escolha este
-   repositório. A Render lê o `render.yaml` e pede `ACCESS_CODE`, `COORDINATOR_PASSWORD`,
-   `TI_PASSWORD`, `DATABASE_URL` e `DATABASE_AUTH_TOKEN`.
-3. Em alguns minutos o sistema fica no ar em `https://<nome>.onrender.com`.
-
-No plano grátis, o servidor "dorme" depois de 15 minutos sem acesso e o primeiro acesso seguinte
-demora cerca de um minuto. Para evitar, um monitor gratuito (ex.: UptimeRobot) pode acessar
-`/healthz` a cada 10 minutos. As reservas não se perdem quando o servidor dorme.
-
-Para trocar o código ou a senha depois, mude as variáveis em **Environment** no painel da Render.
-
-Alternativa paga, sem Turso: troque `plan: free` por `plan: 0.5c-512mb`, remova `DATABASE_URL` e
-`DATABASE_AUTH_TOKEN` e acrescente ao serviço um disco e o caminho do banco:
-
-```yaml
-    disk: { name: dados, mountPath: /var/data, sizeGB: 1 }
-    # e em envVars:  - key: DATABASE_PATH  /  value: /var/data/agendamento.db
 ```
 
 Limitação do piloto: quem sabe o código pode entrar com qualquer nome. Para uso oficial, troque para
